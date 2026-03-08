@@ -94,3 +94,62 @@ SELECT
   updated_at
 FROM zenn_articles
 ORDER BY synced_at DESC;
+
+-- ============================================
+-- note記事用クエリ
+-- ============================================
+
+-- 9. note全記事一覧（公開日時降順）
+SELECT
+  title,
+  like_count,
+  tags,
+  published_at,
+  url,
+  is_paid
+FROM note_articles
+ORDER BY published_at DESC;
+
+-- 10. タグで絞り込み（例: "AI" タグを含む記事）
+SELECT
+  title,
+  like_count,
+  tags,
+  published_at,
+  url
+FROM note_articles
+WHERE tags ? 'AI'
+ORDER BY published_at DESC;
+
+-- 11. キーワード全文検索（ILIKE: 部分一致）
+SELECT
+  title,
+  like_count,
+  published_at,
+  url
+FROM note_articles
+WHERE
+  title ILIKE '%検索ワード%'
+  OR body ILIKE '%検索ワード%'
+ORDER BY published_at DESC;
+
+-- 12. スキ数ランキング（トップ10）
+SELECT
+  title,
+  like_count,
+  published_at,
+  url
+FROM note_articles
+ORDER BY like_count DESC
+LIMIT 10;
+
+-- 13. 有料記事のみ抽出
+SELECT
+  title,
+  like_count,
+  tags,
+  published_at,
+  url
+FROM note_articles
+WHERE is_paid = true
+ORDER BY published_at DESC;
