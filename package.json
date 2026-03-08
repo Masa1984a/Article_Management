@@ -1,0 +1,17 @@
+{
+  "name": "zenn-article-management",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Zenn記事管理システム — 記事をSupabaseに同期・検索",
+  "scripts": {
+    "sync": "tsx sync_zenn.ts"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.49.0",
+    "dotenv": "^16.4.0"
+  },
+  "devDependencies": {
+    "tsx": "^4.19.0",
+    "typescript": "^5.7.0"
+  }
+}
