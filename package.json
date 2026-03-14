@@ -7,7 +7,8 @@
     "sync": "tsx sync_zenn.ts",
     "sync:zenn": "tsx sync_zenn.ts",
     "sync:note": "tsx sync_note.ts",
-    "sync:all": "npm run sync:zenn && npm run sync:note"
+    "sync:all": "npm run sync:zenn && npm run sync:note",
+    "analyze:note": "tsx analyze_note.ts"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.49.0",
