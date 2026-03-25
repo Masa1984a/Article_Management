@@ -35,10 +35,14 @@ Supabase上の `kast_articles` テーブルに対するCRUD操作を、対話形
 python <skill-dir>/scripts/kast_crud.py list [--media blog|academy|x_kast|x_raagulan] [--limit N] [--search KEYWORD]
 python <skill-dir>/scripts/kast_crud.py get <id_or_slug> [--full]
 python <skill-dir>/scripts/kast_crud.py create --json '<json_data>'
+python <skill-dir>/scripts/kast_crud.py create --file <json_file>
 python <skill-dir>/scripts/kast_crud.py update <id_or_slug> --json '<json_data>'
+python <skill-dir>/scripts/kast_crud.py update <id_or_slug> --file <json_file>
 python <skill-dir>/scripts/kast_crud.py delete <id_or_slug> [--confirm]
 python <skill-dir>/scripts/kast_crud.py stats
 ```
+
+**推奨**: 記事本文にシングルクォートやダブルクォート等の特殊文字が含まれる場合、`--json` はbashのクォーティング問題が発生しやすいため、`--file` でJSONファイルを渡す方法を使うこと。
 
 ## ワークフロー
 

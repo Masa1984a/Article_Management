@@ -5,7 +5,9 @@ Usage:
   python kast_crud.py list [--media blog|academy] [--limit N] [--search KEYWORD]
   python kast_crud.py get <id_or_slug>
   python kast_crud.py create --json '<json_data>'
+  python kast_crud.py create --file <json_file>
   python kast_crud.py update <id_or_slug> --json '<json_data>'
+  python kast_crud.py update <id_or_slug> --file <json_file>
   python kast_crud.py delete <id_or_slug>
   python kast_crud.py stats
 """
@@ -81,9 +83,17 @@ def cmd_get(args):
     print(json.dumps(article, ensure_ascii=False, indent=2, default=str))
 
 
+def _load_json_arg(args):
+    """--json または --file からJSONデータを読み込む"""
+    if args.file:
+        with open(args.file, "r", encoding="utf-8") as f:
+            return json.load(f)
+    return json.loads(args.json)
+
+
 def cmd_create(args):
     """記事を新規作成"""
-    data = json.loads(args.json)
+    data = _load_json_arg(args)
 
     # 必須フィールドチェック
     required = ["title", "content"]
@@ -103,7 +113,7 @@ def cmd_create(args):
 def cmd_update(args):
     """記事を更新"""
     identifier = args.id_or_slug
-    data = json.loads(args.json)
+    data = _load_json_arg(args)
 
     # updated_atを自動更新
     data["updated_at"] = "now()"
@@ -190,12 +200,16 @@ def main():
 
     # create
     p_create = sub.add_parser("create")
-    p_create.add_argument("--json", required=True)
+    g_create = p_create.add_mutually_exclusive_group(required=True)
+    g_create.add_argument("--json", help="JSON string")
+    g_create.add_argument("--file", help="Path to JSON file")
 
     # update
     p_update = sub.add_parser("update")
     p_update.add_argument("id_or_slug")
-    p_update.add_argument("--json", required=True)
+    g_update = p_update.add_mutually_exclusive_group(required=True)
+    g_update.add_argument("--json", help="JSON string")
+    g_update.add_argument("--file", help="Path to JSON file")
 
     # delete
     p_delete = sub.add_parser("delete")
