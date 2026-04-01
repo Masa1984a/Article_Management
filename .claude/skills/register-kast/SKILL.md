@@ -47,9 +47,16 @@ python .claude/skills/kast-articles/scripts/kast_crud.py create --file <json_fil
 
 4. 登録成功後、ID・タイトル・slug・媒体・公開日を表示。
 
-#### `"fetch_error"` → 取得失敗
+#### `"fetch_error"` → 取得失敗（WebFetchフォールバック）
 
-エラー内容を表示し、手動入力を促す。
+1. WebFetchツールでURLを取得し、以下をJSON形式で抽出する:
+   - title, published_date (YYYY-MM-DD), content (本文全文), tags
+2. 抽出結果に slug, source_url, media を補完してJSONファイルを作成
+   - slug: URLの最後のパスセグメント
+   - source_url: 元のURL
+   - media: 下記の媒体判別表に従う
+   - **カラム名に注意**: `published_date`（published_atではない）、`source_url`（urlではない）
+3. 以降は `"not_found"` フローのステップ1（品質チェック）から合流する
 
 ## 媒体（media）の自動判別
 
