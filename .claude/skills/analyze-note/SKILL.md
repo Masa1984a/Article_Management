@@ -1,11 +1,11 @@
 ---
 name: analyze-note
-description: Supabaseに保存されたnote記事データを分析・検索する。記事の検索、タグ分析、スキ数ランキング、統計情報、トレンド分析、有料記事の抽出など。「note記事を分析」「note記事を検索」「スキ数ランキング」「noteのタグ集計」「noteの統計」「有料記事」などのリクエストで使用する。noteとZennの横断分析（「全記事の統計」「プラットフォーム比較」など）にも使用する。
+description: Neon DBに保存されたnote記事データを分析・検索する。記事の検索、タグ分析、スキ数ランキング、統計情報、トレンド分析、有料記事の抽出など。「note記事を分析」「note記事を検索」「スキ数ランキング」「noteのタグ集計」「noteの統計」「有料記事」などのリクエストで使用する。noteとZennの横断分析（「全記事の統計」「プラットフォーム比較」など）にも使用する。
 ---
 
 # note記事の分析
 
-Supabaseのnote_articlesテーブルに保存された記事データを分析・検索する。
+Neon DB の note_articles テーブルに保存された記事データを分析・検索する。
 
 ## 分析の実行方法
 
@@ -63,25 +63,24 @@ npm run analyze:note -- ranking 5
 上記コマンドでカバーできない複雑な分析が必要な場合は、プロジェクトルートに一時的なTypeScriptファイルを作成し `npx tsx` で実行する。実行後は一時ファイルを削除する。
 
 ```typescript
-import { createClient } from "@supabase/supabase-js";
-import "dotenv/config";
-
-const supabase = createClient(process.env.SUPABASE_URL!, process.env.SUPABASE_KEY!);
+import { sql } from "./db.js";
 
 async function main() {
-  const { data, error } = await supabase
-    .from("note_articles")
-    .select("...")
-    // カスタムクエリをここに記述
-  if (error) throw error;
-  console.log(data);
+  const rows = await sql`
+    SELECT title, like_count, tags, published_at
+    FROM note_articles
+    WHERE tags @> ${JSON.stringify(["#KAST"])}::jsonb
+    ORDER BY published_at DESC
+    LIMIT 10
+  `;
+  console.log(rows);
 }
 main();
 ```
 
 ## クロスプラットフォーム分析
 
-ZennとnoteのデータはSupabase上の別テーブル（`zenn_articles` / `note_articles`）にある。
+ZennとnoteのデータはNeon DB上の別テーブル（`zenn_articles` / `note_articles`）にある。
 横断分析が求められた場合は、両テーブルからデータを取得して比較するカスタムクエリを使う。
 
 ## 出力ガイドライン

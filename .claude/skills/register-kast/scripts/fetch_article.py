@@ -17,7 +17,7 @@ from urllib.parse import urlparse
 def load_env():
     """プロジェクトルートの.envを読み込む"""
     candidates = [
-        Path(__file__).resolve().parents[3],
+        Path(__file__).resolve().parents[4],  # .../scripts -> .../register-kast -> .../skills -> .../.claude -> project root
         Path.cwd(),
     ]
     for d in candidates:
@@ -152,14 +152,20 @@ def main():
 
     # DB存在チェック
     load_env()
-    from supabase import create_client
-    supabase = create_client(os.environ["SUPABASE_URL"], os.environ["SUPABASE_KEY"])
+    # 共有Pythonライブラリ（.claude/skills/_shared/）をimportパスに追加
+    shared_lib = Path(__file__).resolve().parents[2] / "_shared"
+    sys.path.insert(0, str(shared_lib))
+    from neon_http import from_env  # noqa: E402
 
-    existing = supabase.table("kast_articles").select("id, title, slug, media, published_date").eq("slug", slug).execute()
-    if existing.data:
+    db = from_env("DATABASE_URL")
+    existing = db.query(
+        "SELECT id, title, slug, media, published_date FROM kast_articles WHERE slug = $1",
+        [slug],
+    )
+    if existing:
         result = {
             "status": "exists",
-            "article": existing.data[0],
+            "article": existing[0],
         }
         print(json.dumps(result, ensure_ascii=False, indent=2, default=str))
         return

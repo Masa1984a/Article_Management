@@ -1,34 +1,23 @@
 /**
  * Zenn記事同期スクリプト
  *
- * Zenn公開APIから記事一覧・詳細を取得し、Supabaseへupsertする。
+ * Zenn公開APIから記事一覧・詳細を取得し、Neon DBへupsertする。
  *
  * 使い方:
  *   npx tsx sync_zenn.ts
  *
  * 環境変数(.env):
- *   SUPABASE_URL      — SupabaseプロジェクトのURL
- *   SUPABASE_KEY       — Supabaseのservice_roleキー（またはanonキー）
- *   ZENN_USERNAME      — Zennのユーザー名（デフォルト: myoshida2）
+ *   DATABASE_URL  — Neonの接続文字列 (postgresql://...)
+ *   ZENN_USERNAME — Zennのユーザー名（デフォルト: myoshida2）
  */
 
-import { createClient } from "@supabase/supabase-js";
-import "dotenv/config";
+import { sql } from "./db.js";
 
 // ============================================
 // 設定
 // ============================================
 
-const SUPABASE_URL = process.env.SUPABASE_URL;
-const SUPABASE_KEY = process.env.SUPABASE_KEY;
 const ZENN_USERNAME = process.env.ZENN_USERNAME ?? "myoshida2";
-
-if (!SUPABASE_URL || !SUPABASE_KEY) {
-  console.error("❌ 環境変数 SUPABASE_URL / SUPABASE_KEY が設定されていません");
-  process.exit(1);
-}
-
-const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 
 // Zenn APIのベースURL
 const ZENN_API_BASE = "https://zenn.dev/api";
@@ -70,15 +59,10 @@ interface ZennArticleDetail {
 // ユーティリティ関数
 // ============================================
 
-/** 指定ミリ秒だけ待機する */
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-/**
- * Zenn APIへGETリクエストを送信する
- * レスポンスが正常でない場合はエラーをスロー
- */
 async function fetchZennApi<T>(path: string): Promise<T> {
   const url = `${ZENN_API_BASE}${path}`;
   const res = await fetch(url);
@@ -108,7 +92,6 @@ async function main() {
 
     allArticles.push(...data.articles);
 
-    // 次のページがなければ終了
     if (!data.next_page) break;
     page = data.next_page;
     await sleep(REQUEST_DELAY_MS);
@@ -127,42 +110,38 @@ async function main() {
 
   for (const article of allArticles) {
     try {
-      // 記事詳細（本文）を取得
       console.log(`  📝 詳細取得中: ${article.slug}`);
       const detail = await fetchZennApi<{ article: ZennArticleDetail }>(
         `/articles/${article.slug}`
       );
       const a = detail.article;
 
-      // トピック名の配列を作成
       const topicNames = (a.topics ?? []).map((t) => t.name);
-
-      // 記事URLを組み立て
       const articleUrl = `https://zenn.dev${a.path ?? `/${ZENN_USERNAME}/articles/${a.slug}`}`;
+      const syncedAt = new Date().toISOString();
 
-      // Supabaseへupsert（slugをPKとして既存記事は更新）
-      const { error } = await supabase.from("zenn_articles").upsert(
-        {
-          slug: a.slug,
-          title: a.title,
-          body_html: a.body_html,
-          cover_image_url: a.cover_image_url ?? null,
-          liked_count: a.liked_count,
-          topics: topicNames,
-          published_at: a.published_at,
-          synced_at: new Date().toISOString(),
-          article_url: articleUrl,
-          emoji: a.emoji,
-        },
-        { onConflict: "slug" }
-      );
+      // INSERT ... ON CONFLICT (slug) DO UPDATE
+      // topics は JSONB なので JSON.stringify で渡す
+      await sql`
+        INSERT INTO zenn_articles
+          (slug, title, body_html, cover_image_url, liked_count, topics, published_at, synced_at, article_url, emoji)
+        VALUES
+          (${a.slug}, ${a.title}, ${a.body_html}, ${a.cover_image_url ?? null},
+           ${a.liked_count}, ${JSON.stringify(topicNames)}::jsonb,
+           ${a.published_at}, ${syncedAt}, ${articleUrl}, ${a.emoji})
+        ON CONFLICT (slug) DO UPDATE SET
+          title           = EXCLUDED.title,
+          body_html       = EXCLUDED.body_html,
+          cover_image_url = EXCLUDED.cover_image_url,
+          liked_count     = EXCLUDED.liked_count,
+          topics          = EXCLUDED.topics,
+          published_at    = EXCLUDED.published_at,
+          synced_at       = EXCLUDED.synced_at,
+          article_url     = EXCLUDED.article_url,
+          emoji           = EXCLUDED.emoji
+      `;
 
-      if (error) {
-        console.error(`  ⚠️  upsert失敗 [${a.slug}]: ${error.message}`);
-        errorCount++;
-      } else {
-        syncedCount++;
-      }
+      syncedCount++;
     } catch (err) {
       console.error(
         `  ⚠️  エラー [${article.slug}]:`,
@@ -171,7 +150,6 @@ async function main() {
       errorCount++;
     }
 
-    // APIレート制限対策
     await sleep(REQUEST_DELAY_MS);
   }
 
@@ -186,7 +164,6 @@ async function main() {
   console.log("========================================");
 }
 
-// 実行
 main().catch((err) => {
   console.error("❌ 同期スクリプトが異常終了しました:", err);
   process.exit(1);

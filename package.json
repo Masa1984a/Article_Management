@@ -2,16 +2,17 @@
   "name": "zenn-article-management",
   "version": "1.0.0",
   "private": true,
-  "description": "Zenn・note記事管理システム — 記事をSupabaseに同期・検索",
+  "description": "Zenn・note・KAST記事管理システム — 記事をNeon DBに同期・検索",
   "scripts": {
     "sync": "tsx sync_zenn.ts",
     "sync:zenn": "tsx sync_zenn.ts",
     "sync:note": "tsx sync_note.ts",
     "sync:all": "npm run sync:zenn && npm run sync:note",
-    "analyze:note": "tsx analyze_note.ts"
+    "analyze:note": "tsx analyze_note.ts",
+    "schema:apply": "tsx apply_schema.ts"
   },
   "dependencies": {
-    "@supabase/supabase-js": "^2.49.0",
+    "@neondatabase/serverless": "^1.1.0",
     "dotenv": "^16.4.0"
   },
   "devDependencies": {

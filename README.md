@@ -1,6 +1,16 @@
-# Zenn・note 記事管理システム
+# Zenn・note・KAST 記事管理システム
 
-Zenn・note記事をSupabase（PostgreSQL）に同期し、全文検索・タグ検索を可能にするシステム。
+Zenn・note・KAST記事を **Neon (Vercel Postgres)** に同期し、全文検索・タグ検索を可能にするシステム。
+
+## アーキテクチャ
+
+| 層 | 技術 |
+|---|---|
+| データベース | Neon (PostgreSQL on Vercel) |
+| TS DBアクセス | `@neondatabase/serverless` (HTTPS経由) |
+| Python DBアクセス | `.claude/skills/_shared/neon_http.py`（自製requests製ラッパー、HTTPS経由） |
+
+`@neondatabase/serverless` および `_shared/neon_http.py` はいずれも **HTTPS:443** のみでDBアクセスできるため、PostgreSQLポート(5432/6543)がブロックされた企業ネットワークでも動作する。
 
 ## セットアップ
 
@@ -8,19 +18,15 @@ Zenn・note記事をSupabase（PostgreSQL）に同期し、全文検索・タグ
 
 ```bash
 npm install
+pip install requests
 ```
 
-### 2. データベースのセットアップ
+### 2. Neon DBの作成
 
-Supabaseダッシュボードの **SQL Editor** で `schema.sql` を実行する。
+Vercel Dashboard → Storage → Create Database → Neon → リージョン選択 → 作成。
 
-これにより以下が作成される:
-- `zenn_articles` テーブル
-- `note_articles` テーブル
-- `pg_trgm` 拡張（日本語部分一致検索用）
-- 全文検索インデックス（trigram + tsvector）
-- タグ検索用GINインデックス
-- `updated_at` 自動更新トリガー
+プロジェクトのEnvironment Variablesに `DATABASE_URL` が自動付与される。
+ローカル開発では Vercel CLI で `vercel env pull .env` するか、Neon Dashboard から手動コピー。
 
 ### 3. 環境変数の設定
 
@@ -28,86 +34,72 @@ Supabaseダッシュボードの **SQL Editor** で `schema.sql` を実行する
 cp .env.example .env
 ```
 
-`.env` を編集し、Supabaseの接続情報を設定:
+`.env` を編集:
 
 ```
-SUPABASE_URL=https://your-project.supabase.co
-SUPABASE_KEY=your-service-role-key
+DATABASE_URL=postgresql://user:password@ep-xxxxx.region.aws.neon.tech/dbname?sslmode=require
 ZENN_USERNAME=myoshida2
 NOTE_USERNAME=masa0416ab
 ```
 
-> **SUPABASE_KEY** には `service_role` キーを推奨（RLSをバイパスして書き込み可能）。
-> Supabaseダッシュボード → Settings → API で確認できる。
-
-### 4. 同期の実行
+### 4. スキーマ適用
 
 ```bash
-# Zenn記事のみ同期
-npm run sync:zenn
-
-# note記事のみ同期
-npm run sync:note
-
-# 全プラットフォームを一括同期
-npm run sync:all
+npm run schema:apply
 ```
+
+これにより以下が作成される:
+- `zenn_articles` / `note_articles` / `kast_articles` テーブル
+- `pg_trgm` 拡張
+- 全文検索インデックス（trigram + tsvector）
+- タグ検索用GINインデックス
+- `updated_at` 自動更新トリガー
+
+### 5. 同期の実行
+
+```bash
+npm run sync:zenn   # Zenn記事のみ
+npm run sync:note   # note記事のみ
+npm run sync:all    # 全プラットフォーム
+```
+
+KAST記事は `/register-kast` skill 経由でURLを渡して登録、または `/kast-articles` skill でCRUD。
 
 ## 対応プラットフォーム
 
 ### Zenn
 
 - Zenn公開APIから記事一覧・本文（HTML）を取得
-- ページネーション対応（全記事を自動取得）
+- ページネーション対応
 - トピック（タグ）・いいね数・アイキャッチ絵文字を保存
 
 ### note
 
-- note非公式APIから記事一覧を取得
-- ページネーション対応（全記事を自動取得）
+- note非公式APIから記事一覧・本文を取得
+- ページネーション対応
 - タグ・スキ数・有料記事フラグを保存
-- ※ 非公式APIのため、仕様変更の可能性あり
 
-## 検索クエリの例
+### KAST
 
-`queries.sql` に動作確認用のSQLクエリが含まれている。
-Supabaseダッシュボードの SQL Editor で実行できる。
-
-### Zenn記事
-
-| クエリ | 内容 |
-|---|---|
-| 全記事一覧 | 公開日時降順で全件取得 |
-| タグ絞り込み | 特定タグを含む記事を検索 |
-| ILIKE検索 | 日本語キーワードの部分一致検索 |
-| trigram検索 | 類似度ベースのあいまい検索 |
-| tsvector検索 | 英語キーワードのトークン検索 |
-| いいねランキング | いいね数順のトップ10 |
-
-### note記事
-
-| クエリ | 内容 |
-|---|---|
-| 全記事一覧 | 公開日時降順で全件取得 |
-| タグ絞り込み | 特定タグを含む記事を検索 |
-| キーワード検索 | ILIKE部分一致検索 |
-| スキ数ランキング | スキ数順のトップ10 |
-| 有料記事抽出 | 有料記事のみ表示 |
+- academy.kast.xyz / kast.xyz/blog / x.com の記事を手動登録
+- `register-kast` skillでURLパース、`kast-articles` skillでCRUD
 
 ## ファイル構成
 
 ```
-├── schema.sql        # テーブル定義・インデックス作成SQL
-├── sync_zenn.ts      # Zenn記事同期スクリプト
-├── sync_note.ts      # note記事同期スクリプト
-├── queries.sql       # 動作確認用SQLクエリ集
-├── package.json      # Node.js依存関係
-├── .env.example      # 環境変数テンプレート
-└── .gitignore
+├── schema.sql              # テーブル定義・インデックス作成SQL
+├── db.ts                   # Neon DBクライアント (TS)
+├── apply_schema.ts         # schema.sql適用スクリプト
+├── sync_zenn.ts            # Zenn記事同期
+├── sync_note.ts            # note記事同期
+├── analyze_note.ts         # note記事分析
+└── .claude/skills/
+    ├── _shared/
+    │   └── neon_http.py    # Python用Neon HTTPクライアント（共有）
+    └── ...                 # Claude Codeスキル定義
 ```
 
-## 今後の拡張予定
+## 検索クエリの例
 
-- X投稿の管理テーブル追加
-- Vercel Cronによる定期自動同期
-- Webアプリ（Next.js）からの検索UI
+`queries.sql` に動作確認用のSQLクエリが含まれている。
+Neon SQL Editor（Neon Console）で実行できる。

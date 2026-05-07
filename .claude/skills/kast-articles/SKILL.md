@@ -9,7 +9,7 @@ description: |
 
 # KAST記事管理スキル
 
-Supabase上の `kast_articles` テーブルに対するCRUD操作を、対話形式のワークフローで行うスキル。
+Neon DB 上の `kast_articles` テーブルに対するCRUD操作を、対話形式のワークフローで行うスキル。
 
 ## テーブル構造
 

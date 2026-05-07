@@ -1,34 +1,23 @@
 /**
  * note記事同期スクリプト
  *
- * note非公式APIから記事一覧・詳細を取得し、Supabaseへupsertする。
+ * note非公式APIから記事一覧・詳細を取得し、Neon DBへupsertする。
  *
  * 使い方:
  *   npx tsx sync_note.ts
  *
  * 環境変数(.env):
- *   SUPABASE_URL      — SupabaseプロジェクトのURL
- *   SUPABASE_KEY       — Supabaseのservice_roleキー（またはanonキー）
- *   NOTE_USERNAME      — noteのユーザー名（デフォルト: masa0416ab）
+ *   DATABASE_URL  — Neonの接続文字列 (postgresql://...)
+ *   NOTE_USERNAME — noteのユーザー名（デフォルト: masa0416ab）
  */
 
-import { createClient } from "@supabase/supabase-js";
-import "dotenv/config";
+import { sql } from "./db.js";
 
 // ============================================
 // 設定
 // ============================================
 
-const SUPABASE_URL = process.env.SUPABASE_URL;
-const SUPABASE_KEY = process.env.SUPABASE_KEY;
 const NOTE_USERNAME = process.env.NOTE_USERNAME ?? "masa0416ab";
-
-if (!SUPABASE_URL || !SUPABASE_KEY) {
-  console.error("❌ 環境変数 SUPABASE_URL / SUPABASE_KEY が設定されていません");
-  process.exit(1);
-}
-
-const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 
 // note APIのベースURL
 const NOTE_API_BASE = "https://note.com/api/v2";
@@ -42,7 +31,6 @@ const REQUEST_DELAY_MS = 500;
 // 型定義
 // ============================================
 
-/** note記事一覧APIのレスポンス内の記事（本文はプレビューのみ） */
 interface NoteArticleSummary {
   id: number;
   key: string;
@@ -56,7 +44,6 @@ interface NoteArticleSummary {
   noteUrl: string;
 }
 
-/** note記事詳細APIのレスポンス内の記事（本文HTML全体を含む） */
 interface NoteArticleDetail {
   id: number;
   key: string;
@@ -70,7 +57,6 @@ interface NoteArticleDetail {
   note_url: string;
 }
 
-/** note記事一覧APIのレスポンス */
 interface NoteListApiResponse {
   data: {
     contents: NoteArticleSummary[];
@@ -78,7 +64,6 @@ interface NoteListApiResponse {
   };
 }
 
-/** note記事詳細APIのレスポンス */
 interface NoteDetailApiResponse {
   data: NoteArticleDetail;
 }
@@ -87,15 +72,10 @@ interface NoteDetailApiResponse {
 // ユーティリティ関数
 // ============================================
 
-/** 指定ミリ秒だけ待機する */
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-/**
- * note APIへGETリクエストを送信する
- * レスポンスが正常でない場合はエラーをスロー
- */
 async function fetchNoteApi<T>(url: string): Promise<T> {
   const res = await fetch(url);
   if (!res.ok) {
@@ -123,7 +103,6 @@ async function main() {
 
     allArticles.push(...data.data.contents);
 
-    // 最後のページなら終了
     if (data.data.isLastPage) break;
     page++;
     await sleep(REQUEST_DELAY_MS);
@@ -142,39 +121,35 @@ async function main() {
 
   for (const article of allArticles) {
     try {
-      // 記事詳細（本文HTML全体）を取得
       console.log(`  📝 詳細取得中: ${article.key}`);
       const detail = await fetchNoteApi<NoteDetailApiResponse>(
         `${NOTE_API_V3_BASE}/notes/${article.key}`
       );
       const a = detail.data;
 
-      // タグ名の配列を作成
       const tagNames = (a.hashtag_notes ?? []).map((h) => h.hashtag.name);
+      const syncedAt = new Date().toISOString();
 
-      // Supabaseへupsert（keyをPKとして既存記事は更新）
-      const { error } = await supabase.from("note_articles").upsert(
-        {
-          key: a.key,
-          title: a.name,
-          body: a.body ?? null,
-          cover_image_url: a.eyecatch ?? null,
-          like_count: a.like_count,
-          tags: tagNames,
-          published_at: a.publish_at,
-          synced_at: new Date().toISOString(),
-          url: a.note_url,
-          is_paid: a.is_limited,
-        },
-        { onConflict: "key" }
-      );
+      await sql`
+        INSERT INTO note_articles
+          (key, title, body, cover_image_url, like_count, tags, published_at, synced_at, url, is_paid)
+        VALUES
+          (${a.key}, ${a.name}, ${a.body ?? null}, ${a.eyecatch ?? null},
+           ${a.like_count}, ${JSON.stringify(tagNames)}::jsonb,
+           ${a.publish_at}, ${syncedAt}, ${a.note_url}, ${a.is_limited})
+        ON CONFLICT (key) DO UPDATE SET
+          title           = EXCLUDED.title,
+          body            = EXCLUDED.body,
+          cover_image_url = EXCLUDED.cover_image_url,
+          like_count      = EXCLUDED.like_count,
+          tags            = EXCLUDED.tags,
+          published_at    = EXCLUDED.published_at,
+          synced_at       = EXCLUDED.synced_at,
+          url             = EXCLUDED.url,
+          is_paid         = EXCLUDED.is_paid
+      `;
 
-      if (error) {
-        console.error(`  ⚠️  upsert失敗 [${a.key}]: ${error.message}`);
-        errorCount++;
-      } else {
-        syncedCount++;
-      }
+      syncedCount++;
     } catch (err) {
       console.error(
         `  ⚠️  エラー [${article.key}]:`,
@@ -183,7 +158,6 @@ async function main() {
       errorCount++;
     }
 
-    // APIレート制限対策
     await sleep(REQUEST_DELAY_MS);
   }
 
@@ -198,7 +172,6 @@ async function main() {
   console.log("========================================");
 }
 
-// 実行
 main().catch((err) => {
   console.error("❌ 同期スクリプトが異常終了しました:", err);
   process.exit(1);

@@ -17,15 +17,7 @@
  *   --tag <tag>           指定タグで絞り込み（例: --tag "#KAST"）
  */
 
-import { createClient } from "@supabase/supabase-js";
-import "dotenv/config";
-
-const supabase = createClient(
-  process.env.SUPABASE_URL!,
-  process.env.SUPABASE_KEY!
-);
-
-const TABLE = "note_articles";
+import { sql } from "./db.js";
 
 // ---- helpers ----
 
@@ -70,72 +62,55 @@ function printArticle(
 // ---- commands ----
 
 async function cmdLatest(n: number, showBody: boolean, tag?: string) {
-  let q = supabase
-    .from(TABLE)
-    .select("*")
-    .order("published_at", { ascending: false })
-    .limit(n);
+  // tagはJSONB配列の包含検索: tags @> '["#KAST"]'::jsonb
+  const rows = tag
+    ? await sql`
+        SELECT * FROM note_articles
+        WHERE tags @> ${JSON.stringify([tag])}::jsonb
+        ORDER BY published_at DESC
+        LIMIT ${n}
+      `
+    : await sql`
+        SELECT * FROM note_articles
+        ORDER BY published_at DESC
+        LIMIT ${n}
+      `;
 
-  if (tag) q = q.contains("tags", [tag]);
-
-  const { data, error } = await q;
-  if (error) throw error;
-
-  console.log(`Latest ${data!.length} articles${tag ? ` (tag: ${tag})` : ""}:\n`);
-  for (const a of data!) printArticle(a, { showBody });
+  console.log(`Latest ${rows.length} articles${tag ? ` (tag: ${tag})` : ""}:\n`);
+  for (const a of rows) printArticle(a, { showBody });
 }
 
 async function cmdSearch(keyword: string, showBody: boolean, tag?: string) {
-  // タイトルと本文の両方を検索
-  let qTitle = supabase
-    .from(TABLE)
-    .select("*")
-    .ilike("title", `%${keyword}%`)
-    .order("published_at", { ascending: false });
-
-  let qBody = supabase
-    .from(TABLE)
-    .select("*")
-    .ilike("body", `%${keyword}%`)
-    .order("published_at", { ascending: false });
-
-  if (tag) {
-    qTitle = qTitle.contains("tags", [tag]);
-    qBody = qBody.contains("tags", [tag]);
-  }
-
-  const [titleRes, bodyRes] = await Promise.all([qTitle, qBody]);
-  if (titleRes.error) throw titleRes.error;
-  if (bodyRes.error) throw bodyRes.error;
-
-  // 重複排除（keyベース）
-  const seen = new Set<string>();
-  const merged: any[] = [];
-  for (const a of [...(titleRes.data || []), ...(bodyRes.data || [])]) {
-    if (!seen.has(a.key)) {
-      seen.add(a.key);
-      merged.push(a);
-    }
-  }
+  const pat = `%${keyword}%`;
+  const rows = tag
+    ? await sql`
+        SELECT * FROM note_articles
+        WHERE (title ILIKE ${pat} OR body ILIKE ${pat})
+          AND tags @> ${JSON.stringify([tag])}::jsonb
+        ORDER BY published_at DESC
+      `
+    : await sql`
+        SELECT * FROM note_articles
+        WHERE title ILIKE ${pat} OR body ILIKE ${pat}
+        ORDER BY published_at DESC
+      `;
 
   console.log(
-    `Search "${keyword}": ${merged.length} articles found${tag ? ` (tag: ${tag})` : ""}:\n`
+    `Search "${keyword}": ${rows.length} articles found${tag ? ` (tag: ${tag})` : ""}:\n`
   );
-  for (const a of merged) printArticle(a, { showBody });
+  for (const a of rows) printArticle(a, { showBody });
 }
 
 async function cmdStats() {
-  const { data, error } = await supabase.from(TABLE).select("*");
-  if (error) throw error;
+  const rows = await sql`SELECT * FROM note_articles`;
 
-  const articles = data!;
-  const totalLikes = articles.reduce((s, a) => s + (a.like_count || 0), 0);
-  const paid = articles.filter((a) => a.is_paid);
-  const free = articles.filter((a) => !a.is_paid);
+  const totalLikes = rows.reduce((s, a) => s + (a.like_count || 0), 0);
+  const paid = rows.filter((a) => a.is_paid);
+  const free = rows.filter((a) => !a.is_paid);
 
   // タグ集計
   const tagCount: Record<string, number> = {};
-  for (const a of articles) {
+  for (const a of rows) {
     for (const t of a.tags || []) {
       tagCount[t] = (tagCount[t] || 0) + 1;
     }
@@ -143,18 +118,18 @@ async function cmdStats() {
 
   // 月別集計
   const monthly: Record<string, number> = {};
-  for (const a of articles) {
-    const m = a.published_at?.slice(0, 7); // YYYY-MM
+  for (const a of rows) {
+    const m = a.published_at?.toISOString?.()?.slice(0, 7) ?? String(a.published_at)?.slice(0, 7);
     if (m) monthly[m] = (monthly[m] || 0) + 1;
   }
 
   console.log("=== note記事 統計情報 ===\n");
-  console.log(`総記事数:     ${articles.length}`);
+  console.log(`総記事数:     ${rows.length}`);
   console.log(`有料記事:     ${paid.length}`);
   console.log(`無料記事:     ${free.length}`);
   console.log(`合計スキ数:   ${totalLikes}`);
   console.log(
-    `平均スキ数:   ${articles.length ? (totalLikes / articles.length).toFixed(1) : 0}`
+    `平均スキ数:   ${rows.length ? (totalLikes / rows.length).toFixed(1) : 0}`
   );
   console.log(`ユニークタグ数: ${Object.keys(tagCount).length}`);
 
@@ -165,34 +140,36 @@ async function cmdStats() {
 }
 
 async function cmdRanking(n: number, tag?: string) {
-  let q = supabase
-    .from(TABLE)
-    .select("title, url, like_count, published_at, tags")
-    .order("like_count", { ascending: false })
-    .limit(n);
-
-  if (tag) q = q.contains("tags", [tag]);
-
-  const { data, error } = await q;
-  if (error) throw error;
+  const rows = tag
+    ? await sql`
+        SELECT title, url, like_count, published_at, tags
+        FROM note_articles
+        WHERE tags @> ${JSON.stringify([tag])}::jsonb
+        ORDER BY like_count DESC
+        LIMIT ${n}
+      `
+    : await sql`
+        SELECT title, url, like_count, published_at, tags
+        FROM note_articles
+        ORDER BY like_count DESC
+        LIMIT ${n}
+      `;
 
   console.log(
-    `スキ数ランキング TOP${data!.length}${tag ? ` (tag: ${tag})` : ""}:\n`
+    `スキ数ランキング TOP${rows.length}${tag ? ` (tag: ${tag})` : ""}:\n`
   );
-  data!.forEach((a, i) => {
-    console.log(
-      `  ${i + 1}. [${a.like_count} スキ] ${a.title}`
-    );
-    console.log(`     ${a.url}  (${a.published_at?.slice(0, 10)})`);
+  rows.forEach((a, i) => {
+    const dateStr = a.published_at?.toISOString?.()?.slice(0, 10) ?? String(a.published_at)?.slice(0, 10);
+    console.log(`  ${i + 1}. [${a.like_count} スキ] ${a.title}`);
+    console.log(`     ${a.url}  (${dateStr})`);
   });
 }
 
 async function cmdTags(n: number) {
-  const { data, error } = await supabase.from(TABLE).select("tags");
-  if (error) throw error;
+  const rows = await sql`SELECT tags FROM note_articles`;
 
   const tagCount: Record<string, number> = {};
-  for (const a of data!) {
+  for (const a of rows) {
     for (const t of a.tags || []) {
       tagCount[t] = (tagCount[t] || 0) + 1;
     }
@@ -209,14 +186,14 @@ async function cmdTags(n: number) {
 }
 
 async function cmdArticle(key: string, showBody: boolean) {
-  const { data, error } = await supabase
-    .from(TABLE)
-    .select("*")
-    .eq("key", key)
-    .single();
-  if (error) throw error;
-
-  printArticle(data, { showBody });
+  const rows = await sql`
+    SELECT * FROM note_articles WHERE key = ${key} LIMIT 1
+  `;
+  if (rows.length === 0) {
+    console.error(`Article not found: ${key}`);
+    process.exit(1);
+  }
+  printArticle(rows[0], { showBody });
 }
 
 // ---- main ----

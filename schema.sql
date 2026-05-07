@@ -1,6 +1,6 @@
 -- ============================================
--- Zenn記事管理テーブル定義
--- Database: Supabase (PostgreSQL)
+-- 記事管理テーブル定義
+-- Database: Neon (PostgreSQL)
 -- ============================================
 
 -- 記事テーブル
@@ -51,10 +51,10 @@ CREATE TRIGGER trg_zenn_articles_updated_at
 -- ============================================
 
 -- 日本語検索用: pg_bigm拡張が利用可能な場合はそちらが望ましいが、
--- Supabaseではデフォルトで利用できないため、
+-- Neon環境のデフォルトでは利用できないため、
 -- trigram (pg_trgm) + GINインデックスで部分一致検索を実現する
 
--- pg_trgm拡張を有効化（Supabaseでサポート済み）
+-- pg_trgm拡張を有効化（Neonでサポート済み）
 CREATE EXTENSION IF NOT EXISTS pg_trgm;
 
 -- タイトルに対するtrigramインデックス
@@ -161,3 +161,63 @@ ALTER TABLE note_articles
 
 CREATE INDEX IF NOT EXISTS idx_note_articles_fts
   ON note_articles USING gin (fts);
+
+-- ============================================
+-- KAST記事管理テーブル定義
+-- ============================================
+
+-- 記事テーブル
+CREATE TABLE IF NOT EXISTS kast_articles (
+  -- 自動採番ID（PK）
+  id              BIGSERIAL PRIMARY KEY,
+  -- 記事タイトル
+  title           TEXT NOT NULL,
+  -- 記事本文（マークダウン）
+  content         TEXT NOT NULL,
+  -- URLスラッグ（重複不可）
+  slug            TEXT UNIQUE,
+  -- 元記事のURL
+  source_url      TEXT,
+  -- 媒体種別: academy / blog / x_kast / x_raagulan
+  media           TEXT,
+  -- 公開日
+  published_date  DATE,
+  -- 更新日
+  updated_date    DATE,
+  -- タグ配列
+  tags            TEXT[],
+  -- レコード作成日時
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+  -- レコード更新日時
+  updated_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- updated_at 自動更新トリガー
+CREATE TRIGGER trg_kast_articles_updated_at
+  BEFORE UPDATE ON kast_articles
+  FOR EACH ROW
+  EXECUTE FUNCTION update_updated_at();
+
+-- ============================================
+-- KAST記事 全文検索インデックス
+-- ============================================
+
+-- タイトルに対するtrigramインデックス
+CREATE INDEX IF NOT EXISTS idx_kast_articles_title_trgm
+  ON kast_articles USING gin (title gin_trgm_ops);
+
+-- 本文に対するtrigramインデックス
+CREATE INDEX IF NOT EXISTS idx_kast_articles_content_trgm
+  ON kast_articles USING gin (content gin_trgm_ops);
+
+-- 媒体種別での絞り込み用インデックス
+CREATE INDEX IF NOT EXISTS idx_kast_articles_media
+  ON kast_articles (media);
+
+-- 公開日の降順ソート用インデックス
+CREATE INDEX IF NOT EXISTS idx_kast_articles_published_date
+  ON kast_articles (published_date DESC);
+
+-- タグ検索用GINインデックス（text[]）
+CREATE INDEX IF NOT EXISTS idx_kast_articles_tags
+  ON kast_articles USING gin (tags);
