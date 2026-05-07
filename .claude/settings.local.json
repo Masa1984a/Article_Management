@@ -2,7 +2,12 @@
   "permissions": {
     "allow": [
       "Bash(npx tsx:*)",
-      "Bash(npm run:*)"
+      "Bash(npm run:*)",
+      "Bash(PYTHONIOENCODING=utf-8 python:*)",
+      "WebFetch(domain:concierge.kast.xyz)",
+      "Bash(python -c \"import matplotlib; import numpy; import pandas; print\\('OK'\\)\")",
+      "Bash(python kast_cashback_simulation.py)",
+      "Bash(python kast_cashback_simulation_dual.py)"
     ]
   }
 }
