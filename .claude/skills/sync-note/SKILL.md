@@ -1,11 +1,18 @@
 ---
 name: sync-note
-description: note記事をNeon DBへ洗い替え（全件同期）する。note非公式APIから記事一覧・本文を取得し、Neonへupsertする。「note記事を洗い替える」「note同期」「note記事を更新」「noteをsync」などのリクエストで使用する。また「全記事を同期」「すべて同期」のように全プラットフォーム同期を求められた場合にも使用する。
+description: note記事をNeon DBへ差分同期する。note非公式APIから一覧でメタdata(スキ数等)を全件更新し、本文未取得の記事だけ詳細を取得してupsertする。「note記事を同期」「note同期」「note記事を更新」「noteをsync」などのリクエストで使用する。また「全記事を同期」「すべて同期」のように全プラットフォーム同期を求められた場合にも使用する。
 ---
 
-# note記事の洗い替え
+# note記事の差分同期
 
-note非公式API（v2/v3）から全記事を取得し、Neon DB の note_articles テーブルへupsertで同期する。
+note非公式API（v2/v3）から取得する。レート制限に配慮し、Zennと同じ差分同期方式。
+
+- **Phase A（毎回・全件・安い）**: 一覧API(v2)から `like_count`・タイトル等の
+  メタdataを全件upsert。本文(body)は触らない。
+- **Phase B（本文NULLのものだけ・上限つき）**: `body IS NULL` の記事だけ、
+  1件ずつ緩やかに詳細API(v3)で本文取得。429に当たったら即中断し、残りは次回に繰り越す。
+
+実処理は `lib/note.ts` の `syncNote()`。CLI・Vercel Cron の双方から呼ばれる。
 
 ## 実行手順
 
@@ -21,10 +28,21 @@ npm run sync:note
 npm run sync:all
 ```
 
+### 初回バックフィル（本文を多めに取得したいとき）
+
+```bash
+npx tsx sync_note.ts --max-body=1000 --delay=1500
+```
+
+429で中断しても、再実行すれば未取得ぶんの続きから埋まる（冪等・再開可能）。
+
 実行ログを監視し、完了後に以下をユーザーに報告する:
-- 取得した記事数
-- 成功件数 / 失敗件数
-- エラーがあった場合はその内容と対処案
+- メタ更新件数 / 本文取得件数 / 本文未取得の残り件数
+- レート制限で中断した場合はその旨
+
+## 自動化（Vercel Cron）
+
+`vercel.json` の cron で毎日 `/api/cron/sync-note` が呼ばれ、`syncNote()` が実行される。
 
 ## 前提条件
 
@@ -33,17 +51,9 @@ npm run sync:all
 - `.env` に `NOTE_USERNAME` が設定されていること（省略時: masa0416ab）
 - Neon上に `note_articles` テーブルが作成済みであること（`npm run schema:apply` 実行済み）
 
-## 同期の仕組み
-
-1. 一覧API（v2）で全記事のキー一覧をページネーションで取得
-2. 詳細API（v3）で各記事の本文HTML全体を取得
-3. Neon DB へupsert（INSERT ... ON CONFLICT (key) DO UPDATE）
-
-note APIは非公式APIのため、仕様変更の可能性がある。エラーが発生した場合はAPIレスポンスの変更を疑うこと。
-
 ## トラブルシューティング
 
-- `relation "note_articles" does not exist` → `npm run schema:apply` を実行してテーブルを作成する
-- `DATABASE_URL が設定されていません` → `.env` ファイルを確認する
-- `note API error: 404` → note APIの仕様変更の可能性。`sync_note.ts` のエンドポイントを確認する
-- API取得エラーが多発する場合 → note APIの一時的な不調の可能性があるため、時間を置いて再実行する
+- `note API error: 404` → note APIの仕様変更の可能性。`lib/note.ts` のエンドポイントを確認する
+- `429` → レート制限。時間を置いて再実行（Phase Bは自動中断する）
+- `relation "note_articles" does not exist` → `npm run schema:apply` でテーブル作成
+- `DATABASE_URL が設定されていません` → `.env` を確認
