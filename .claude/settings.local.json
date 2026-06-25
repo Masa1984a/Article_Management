@@ -7,7 +7,11 @@
       "WebFetch(domain:concierge.kast.xyz)",
       "Bash(python -c \"import matplotlib; import numpy; import pandas; print\\('OK'\\)\")",
       "Bash(python kast_cashback_simulation.py)",
-      "Bash(python kast_cashback_simulation_dual.py)"
+      "Bash(python kast_cashback_simulation_dual.py)",
+      "WebFetch(domain:www.kast.xyz)",
+      "WebSearch",
+      "WebFetch(domain:webcache.googleusercontent.com)",
+      "Skill(analyze-note)"
     ]
   }
 }
