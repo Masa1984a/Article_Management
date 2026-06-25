@@ -2,6 +2,7 @@
   "name": "zenn-article-management",
   "version": "1.0.0",
   "private": true,
+  "type": "commonjs",
   "description": "Zenn・note・KAST記事管理システム — 記事をNeon DBに同期・検索",
   "scripts": {
     "sync": "tsx sync_zenn.ts",
